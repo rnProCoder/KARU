@@ -1,5 +1,6 @@
-import { type Task, type InsertTask } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { type Task, type InsertTask, type Category, type InsertCategory, tasks, categories } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
 
 export interface IStorage {
   // Task methods
@@ -8,47 +9,56 @@ export interface IStorage {
   updateTask(id: string, updates: Partial<InsertTask>): Promise<Task | undefined>;
   deleteTask(id: string): Promise<boolean>;
   getAllTasks(): Promise<Task[]>;
+  
+  // Category methods
+  getAllCategories(): Promise<Category[]>;
+  createCategory(category: InsertCategory): Promise<Category>;
+  updateCategory(id: string, updates: Partial<InsertCategory>): Promise<Category | undefined>;
+  deleteCategory(id: string): Promise<boolean>;
 }
 
-export class MemStorage implements IStorage {
-  private tasks: Map<string, Task>;
-
-  constructor() {
-    this.tasks = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
   async getTasksByDate(date: string): Promise<Task[]> {
-    return Array.from(this.tasks.values()).filter(task => task.date === date);
+    return await db.select().from(tasks).where(eq(tasks.date, date)).orderBy(tasks.order, tasks.createdAt);
   }
 
   async createTask(insertTask: InsertTask): Promise<Task> {
-    const id = randomUUID();
-    const task: Task = {
-      ...insertTask,
-      id,
-      completed: insertTask.completed ?? false,
-      createdAt: new Date(),
-    };
-    this.tasks.set(id, task);
+    const [task] = await db.insert(tasks).values(insertTask).returning();
     return task;
   }
 
   async updateTask(id: string, updates: Partial<InsertTask>): Promise<Task | undefined> {
-    const task = this.tasks.get(id);
-    if (!task) return undefined;
-    
-    const updatedTask = { ...task, ...updates };
-    this.tasks.set(id, updatedTask);
-    return updatedTask;
+    const [task] = await db.update(tasks).set(updates).where(eq(tasks.id, id)).returning();
+    return task || undefined;
   }
 
   async deleteTask(id: string): Promise<boolean> {
-    return this.tasks.delete(id);
+    const result = await db.delete(tasks).where(eq(tasks.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getAllTasks(): Promise<Task[]> {
-    return Array.from(this.tasks.values());
+    return await db.select().from(tasks).orderBy(tasks.date, tasks.order, tasks.createdAt);
+  }
+
+  async getAllCategories(): Promise<Category[]> {
+    return await db.select().from(categories).orderBy(categories.name);
+  }
+
+  async createCategory(insertCategory: InsertCategory): Promise<Category> {
+    const [category] = await db.insert(categories).values(insertCategory).returning();
+    return category;
+  }
+
+  async updateCategory(id: string, updates: Partial<InsertCategory>): Promise<Category | undefined> {
+    const [category] = await db.update(categories).set(updates).where(eq(categories.id, id)).returning();
+    return category || undefined;
+  }
+
+  async deleteCategory(id: string): Promise<boolean> {
+    const result = await db.delete(categories).where(eq(categories.id, id));
+    return (result.rowCount ?? 0) > 0;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
